@@ -75,16 +75,32 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                 arquivos = item.get("arquivos_contidos") or []
                 if isinstance(arquivos, str):
                     arquivos = json.loads(arquivos)
-                item["arquivos_contidos"] = arquivos
-                item["arquivos_exibicao"] = "\n".join(
-                    f"{index + 1}. {nome}" for index, nome in enumerate(arquivos)
-                )
+                normalized = []
+                for arquivo in arquivos:
+                    if isinstance(arquivo, dict):
+                        normalized.append({
+                            "nome": str(arquivo.get("nome", "")).strip(),
+                            "link": str(arquivo.get("link", "")).strip(),
+                        })
+                    else:
+                        normalized.append({
+                            "nome": str(arquivo).strip(),
+                            "link": str(item.get("link_arquivo", "") or "").strip(),
+                        })
+                item["arquivos_contidos"] = normalized
                 rows.append(item)
             return rows
 
 
 def save_record(data: dict[str, Any], record_id: int | None = None) -> None:
-    arquivos = [str(value).strip() for value in data["arquivos_contidos"] if str(value).strip()]
+    arquivos = [
+        {
+            "nome": str(value.get("nome", "")).strip(),
+            "link": str(value.get("link", "")).strip(),
+        }
+        for value in data["arquivos_contidos"]
+        if str(value.get("nome", "")).strip() or str(value.get("link", "")).strip()
+    ]
     if len(arquivos) > MAX_FILES:
         raise ValueError(f"É permitido cadastrar no máximo {MAX_FILES} arquivos.")
 
@@ -95,7 +111,7 @@ def save_record(data: dict[str, Any], record_id: int | None = None) -> None:
                 data["numero_caixa_pasta"],
                 data["numero_envelope"],
                 Json(arquivos),
-                data["link_arquivo"],
+                "",
             )
             if record_id is None:
                 cursor.execute(
@@ -135,8 +151,7 @@ COLUMNS = [
     {"name": "local_arquivo", "label": "Local de arquivo", "field": "local_arquivo", "align": "left", "sortable": True},
     {"name": "numero_caixa_pasta", "label": "Nº caixa/pasta", "field": "numero_caixa_pasta", "align": "left"},
     {"name": "numero_envelope", "label": "Nº envelope", "field": "numero_envelope", "align": "left"},
-    {"name": "arquivos_exibicao", "label": "Arquivos contidos", "field": "arquivos_exibicao", "align": "left"},
-    {"name": "link_arquivo", "label": "Link do arquivo", "field": "link_arquivo", "align": "left"},
+    {"name": "arquivos_contidos", "label": "Arquivos e links", "field": "arquivos_contidos", "align": "left"},
 ]
 
 
@@ -159,24 +174,31 @@ def main_page() -> None:
     def close_dialog() -> None:
         dialog.close()
 
-    def rebuild_file_inputs(values: list[str] | None = None) -> None:
+    def rebuild_file_inputs(values: list[dict[str, str]] | None = None) -> None:
         nonlocal file_inputs
-        values = values or []
-        values = values[:MAX_FILES]
+        values = (values or [])[:MAX_FILES]
         file_inputs = []
         files_container.clear()
         with files_container:
             for index, value in enumerate(values, start=1):
-                file_inputs.append(
-                    ui.input(f"Arquivo {index}", value=value).props("outlined dense").classes("flex-1")
-                )
+                with ui.row().classes("w-full items-center gap-2"):
+                    name_input = ui.input(
+                        f"Arquivo {index}", value=value.get("nome", "")
+                    ).props("outlined dense").classes("flex-1")
+                    link_input = ui.input(
+                        "Link deste arquivo", value=value.get("link", "")
+                    ).props("outlined dense").classes("flex-1")
+                    file_inputs.append({"nome": name_input, "link": link_input})
 
     def add_file_field() -> None:
         if len(file_inputs) >= MAX_FILES:
             ui.notify(f"Limite de {MAX_FILES} arquivos atingido.", type="warning")
             return
-        values = [str(field.value or "") for field in file_inputs]
-        values.append("")
+        values = [
+            {"nome": str(pair["nome"].value or ""), "link": str(pair["link"].value or "")}
+            for pair in file_inputs
+        ]
+        values.append({"nome": "", "link": ""})
         rebuild_file_inputs(values)
 
     def collect_form() -> dict[str, Any]:
@@ -184,8 +206,10 @@ def main_page() -> None:
             "local_arquivo": str(fields["local_arquivo"].value or "").strip(),
             "numero_caixa_pasta": str(fields["numero_caixa_pasta"].value or "").strip(),
             "numero_envelope": str(fields["numero_envelope"].value or "").strip(),
-            "arquivos_contidos": [str(field.value or "").strip() for field in file_inputs],
-            "link_arquivo": str(fields["link_arquivo"].value or "").strip(),
+            "arquivos_contidos": [
+                {"nome": str(pair["nome"].value or "").strip(), "link": str(pair["link"].value or "").strip()}
+                for pair in file_inputs
+            ],
         }
 
     def save_form() -> None:
@@ -253,12 +277,9 @@ def main_page() -> None:
                     ui.label(f"Arquivos contidos (até {MAX_FILES})").classes("text-subtitle1 font-semibold")
                     ui.button("Adicionar arquivo", icon="add", on_click=add_file_field).props("outline dense")
                 files_container = ui.column().classes("w-full gap-2 max-h-80 overflow-y-auto")
-                rebuild_file_inputs((record.get("arquivos_contidos", []) if record else [""]))
-
-                fields["link_arquivo"] = ui.input(
-                    "Link do arquivo ou da pasta digitalizada",
-                    value=str(record.get("link_arquivo", "") if record else ""),
-                ).props("outlined dense")
+                rebuild_file_inputs(
+                    (record.get("arquivos_contidos", []) if record else [{"nome": "", "link": ""}])
+                )
 
             with ui.row().classes("w-full justify-between mt-4"):
                 if record:
@@ -321,19 +342,14 @@ def main_page() -> None:
             pagination={"rowsPerPage": 25},
         ).classes("w-full")
         record_table.add_slot(
-            "body-cell-link_arquivo",
+            "body-cell-arquivos_contidos",
             """
             <q-td :props="props">
-                <a v-if="props.value" :href="props.value" target="_blank" rel="noopener" class="text-blue-700 underline">Abrir arquivo</a>
-                <span v-else class="text-gray-400">Sem link</span>
-            </q-td>
-            """,
-        )
-        record_table.add_slot(
-            "body-cell-arquivos_exibicao",
-            """
-            <q-td :props="props">
-                <div style="white-space: pre-line; max-width: 460px">{{ props.value }}</div>
+                <div v-for="(arquivo, index) in props.row.arquivos_contidos" :key="index" class="q-mb-xs">
+                    <span>{{ index + 1 }}. {{ arquivo.nome }}</span>
+                    <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline q-ml-sm">Abrir link</a>
+                    <span v-else class="text-gray-400 q-ml-sm">Sem link</span>
+                </div>
             </q-td>
             """,
         )
