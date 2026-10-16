@@ -71,7 +71,12 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                        OR numero_envelope ILIKE %s
                        OR arquivos_contidos::text ILIKE %s
                        OR link_arquivo ILIKE %s
-                    ORDER BY id DESC
+                    ORDER BY
+                        CASE WHEN numero_caixa_pasta ~ '[0-9]+'
+                             THEN substring(numero_caixa_pasta FROM '[0-9]+')::BIGINT
+                             ELSE NULL END NULLS LAST,
+                        numero_caixa_pasta ASC,
+                        id ASC
                     """,
                     (pattern, pattern, pattern, pattern, pattern),
                 )
@@ -81,7 +86,12 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                     SELECT id, local_arquivo, numero_caixa_pasta, numero_envelope,
                            arquivos_contidos, link_arquivo
                     FROM {TABLE_NAME}
-                    ORDER BY id DESC
+                    ORDER BY
+                        CASE WHEN numero_caixa_pasta ~ '[0-9]+'
+                             THEN substring(numero_caixa_pasta FROM '[0-9]+')::BIGINT
+                             ELSE NULL END NULLS LAST,
+                        numero_caixa_pasta ASC,
+                        id ASC
                     """
                 )
 
