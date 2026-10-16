@@ -80,11 +80,15 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                     if isinstance(arquivo, dict):
                         normalized.append({
                             "nome": str(arquivo.get("nome", "")).strip(),
+                            "assunto": str(arquivo.get("assunto", "")).strip(),
+                            "interessado": str(arquivo.get("interessado", "")).strip(),
                             "link": str(arquivo.get("link", "")).strip(),
                         })
                     else:
                         normalized.append({
                             "nome": str(arquivo).strip(),
+                            "assunto": "",
+                            "interessado": "",
                             "link": str(item.get("link_arquivo", "") or "").strip(),
                         })
                 item["arquivos_contidos"] = normalized
@@ -96,6 +100,8 @@ def save_record(data: dict[str, Any], record_id: int | None = None) -> None:
     arquivos = [
         {
             "nome": str(value.get("nome", "")).strip(),
+            "assunto": str(value.get("assunto", "")).strip(),
+            "interessado": str(value.get("interessado", "")).strip(),
             "link": str(value.get("link", "")).strip(),
         }
         for value in data["arquivos_contidos"]
@@ -181,24 +187,35 @@ def main_page() -> None:
         files_container.clear()
         with files_container:
             for index, value in enumerate(values, start=1):
-                with ui.row().classes("w-full items-center gap-2"):
-                    name_input = ui.input(
-                        f"Arquivo {index}", value=value.get("nome", "")
-                    ).props("outlined dense").classes("flex-1")
-                    link_input = ui.input(
-                        "Link deste arquivo", value=value.get("link", "")
-                    ).props("outlined dense").classes("flex-1")
-                    file_inputs.append({"nome": name_input, "link": link_input})
+                with ui.column().classes("w-full gap-1 border rounded-lg p-2 bg-gray-50"):
+                    ui.label(f"Arquivo {index}").classes("text-subtitle2 font-semibold text-gray-700")
+                    with ui.row().classes("w-full items-center gap-2"):
+                        name_input = ui.input("Nome do arquivo", value=value.get("nome", "")).props("outlined dense").classes("flex-1")
+                        subject_input = ui.input("Assunto do arquivo", value=value.get("assunto", "")).props("outlined dense").classes("flex-1")
+                    with ui.row().classes("w-full items-center gap-2"):
+                        interested_input = ui.input("Interessado", value=value.get("interessado", "")).props("outlined dense").classes("flex-1")
+                        link_input = ui.input("Link do arquivo", value=value.get("link", "")).props("outlined dense").classes("flex-1")
+                    file_inputs.append({
+                        "nome": name_input,
+                        "assunto": subject_input,
+                        "interessado": interested_input,
+                        "link": link_input,
+                    })
 
     def add_file_field() -> None:
         if len(file_inputs) >= MAX_FILES:
             ui.notify(f"Limite de {MAX_FILES} arquivos atingido.", type="warning")
             return
         values = [
-            {"nome": str(pair["nome"].value or ""), "link": str(pair["link"].value or "")}
+            {
+                "nome": str(pair["nome"].value or ""),
+                "assunto": str(pair["assunto"].value or ""),
+                "interessado": str(pair["interessado"].value or ""),
+                "link": str(pair["link"].value or ""),
+            }
             for pair in file_inputs
         ]
-        values.append({"nome": "", "link": ""})
+        values.append({"nome": "", "assunto": "", "interessado": "", "link": ""})
         rebuild_file_inputs(values)
 
     def collect_form() -> dict[str, Any]:
@@ -207,7 +224,12 @@ def main_page() -> None:
             "numero_caixa_pasta": str(fields["numero_caixa_pasta"].value or "").strip(),
             "numero_envelope": str(fields["numero_envelope"].value or "").strip(),
             "arquivos_contidos": [
-                {"nome": str(pair["nome"].value or "").strip(), "link": str(pair["link"].value or "").strip()}
+                {
+                    "nome": str(pair["nome"].value or "").strip(),
+                    "assunto": str(pair["assunto"].value or "").strip(),
+                    "interessado": str(pair["interessado"].value or "").strip(),
+                    "link": str(pair["link"].value or "").strip(),
+                }
                 for pair in file_inputs
             ],
         }
@@ -255,7 +277,7 @@ def main_page() -> None:
         dialog.clear()
         with dialog, ui.card().classes("w-full max-w-5xl"):
             ui.label("Editar arquivo" if record else "Adicionar arquivo").classes("text-h5")
-            ui.label("Cadastre a localização física e os arquivos contidos na caixa ou pasta.").classes("text-gray-600 mb-3")
+            ui.label("Cadastre cada arquivo com assunto, interessado e link próprio.").classes("text-gray-600 mb-3")
 
             with ui.column().classes("w-full gap-2"):
                 fields["local_arquivo"] = ui.select(
@@ -278,7 +300,7 @@ def main_page() -> None:
                     ui.button("Adicionar arquivo", icon="add", on_click=add_file_field).props("outline dense")
                 files_container = ui.column().classes("w-full gap-2 max-h-80 overflow-y-auto")
                 rebuild_file_inputs(
-                    (record.get("arquivos_contidos", []) if record else [{"nome": "", "link": ""}])
+                    (record.get("arquivos_contidos", []) if record else [{"nome": "", "assunto": "", "interessado": "", "link": ""}])
                 )
 
             with ui.row().classes("w-full justify-between mt-4"):
@@ -345,10 +367,12 @@ def main_page() -> None:
             "body-cell-arquivos_contidos",
             """
             <q-td :props="props">
-                <div v-for="(arquivo, index) in props.row.arquivos_contidos" :key="index" class="q-mb-xs">
-                    <span>{{ index + 1 }}. {{ arquivo.nome }}</span>
-                    <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline q-ml-sm">Abrir link</a>
-                    <span v-else class="text-gray-400 q-ml-sm">Sem link</span>
+                <div v-for="(arquivo, index) in props.row.arquivos_contidos" :key="index" class="q-mb-sm">
+                    <div><strong>{{ index + 1 }}. {{ arquivo.nome }}</strong></div>
+                    <div class="text-grey-8">Assunto: {{ arquivo.assunto || 'Não informado' }}</div>
+                    <div class="text-grey-8">Interessado: {{ arquivo.interessado || 'Não informado' }}</div>
+                    <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline">Abrir link</a>
+                    <span v-else class="text-gray-400">Sem link</span>
                 </div>
             </q-td>
             """,
