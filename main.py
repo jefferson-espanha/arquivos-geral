@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from html import escape
 from typing import Any
 
 import psycopg2
@@ -15,6 +17,20 @@ if not DATABASE_URL:
 PORT = int(os.getenv("PORT", "8080"))
 TABLE_NAME = "arquivos_gerais"
 MAX_FILES = 80
+
+
+def highlight_text(value: Any, term: str) -> str:
+    """Escapa o texto e envolve cada ocorrência buscada em destaque vermelho."""
+    text = escape(str(value or ""))
+    escaped_term = escape(str(term or "").strip())
+    if not escaped_term:
+        return text
+    return re.sub(
+        re.escape(escaped_term),
+        lambda match: f'<span class="search-highlight">{match.group(0)}</span>',
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def get_connection():
@@ -94,6 +110,14 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                             "link": str(item.get("link_arquivo", "") or "").strip(),
                         })
                 item["arquivos_contidos"] = normalized
+                item["local_html"] = highlight_text(item.get("local_arquivo"), search)
+                item["caixa_html"] = highlight_text(item.get("numero_caixa_pasta"), search)
+                for arquivo in normalized:
+                    arquivo["numero_envelope_html"] = highlight_text(arquivo.get("numero_envelope"), search)
+                    arquivo["nome_html"] = highlight_text(arquivo.get("nome"), search)
+                    arquivo["assunto_html"] = highlight_text(arquivo.get("assunto"), search)
+                    arquivo["interessado_html"] = highlight_text(arquivo.get("interessado"), search)
+                    arquivo["link_html"] = highlight_text(arquivo.get("link"), search)
                 rows.append(item)
             return rows
 
@@ -335,6 +359,7 @@ def main_page() -> None:
             .q-table th { font-weight: 700; background: #e8eef7; }
             .q-table tbody tr { cursor: pointer; }
             .q-table tbody tr:hover { background: #eaf2ff !important; }
+            .search-highlight { background: #dc2626; color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 700; }
         </style>
     """)
 
@@ -365,14 +390,26 @@ def main_page() -> None:
             pagination={"rowsPerPage": 25},
         ).classes("w-full")
         record_table.add_slot(
+            "body-cell-local_arquivo",
+            """
+            <q-td :props="props"><span v-html="props.row.local_html"></span></q-td>
+            """,
+        )
+        record_table.add_slot(
+            "body-cell-numero_caixa_pasta",
+            """
+            <q-td :props="props"><span v-html="props.row.caixa_html"></span></q-td>
+            """,
+        )
+        record_table.add_slot(
             "body-cell-arquivos_contidos",
             """
             <q-td :props="props">
                 <div v-for="(arquivo, index) in props.row.arquivos_contidos" :key="index" class="q-mb-sm">
-                    <div><strong>{{ index + 1 }}. {{ arquivo.nome }}</strong> — Envelope: {{ arquivo.numero_envelope || 'Não informado' }}</div>
-                    <div class="text-grey-8">Assunto: {{ arquivo.assunto || 'Não informado' }}</div>
-                    <div class="text-grey-8">Interessado: {{ arquivo.interessado || 'Não informado' }}</div>
-                    <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline">Abrir link</a>
+                    <div><strong>{{ index + 1 }}. <span v-html="arquivo.nome_html"></span></strong> — Envelope: <span v-if="arquivo.numero_envelope" v-html="arquivo.numero_envelope_html"></span><span v-else>Não informado</span></div>
+                    <div class="text-grey-8">Assunto: <span v-if="arquivo.assunto" v-html="arquivo.assunto_html"></span><span v-else>Não informado</span></div>
+                    <div class="text-grey-8">Interessado: <span v-if="arquivo.interessado" v-html="arquivo.interessado_html"></span><span v-else>Não informado</span></div>
+                    <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline"><span v-html="arquivo.link_html"></span></a>
                     <span v-else class="text-gray-400">Sem link</span>
                 </div>
             </q-td>
