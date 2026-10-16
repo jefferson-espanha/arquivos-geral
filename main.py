@@ -181,8 +181,8 @@ def delete_record(record_id: int) -> None:
 initialize_database()
 
 COLUMNS = [
-    {"name": "local_arquivo", "label": "Local de arquivo", "field": "local_arquivo", "align": "left", "sortable": True},
-    {"name": "numero_caixa_pasta", "label": "Nº caixa/pasta", "field": "numero_caixa_pasta", "align": "left"},
+    {"name": "local_arquivo", "label": "Caixa de arquivo", "field": "local_arquivo", "align": "left", "sortable": True},
+    {"name": "numero_caixa_pasta", "label": "Nº da caixa/pasta", "field": "numero_caixa_pasta", "align": "left"},
     {"name": "arquivos_contidos", "label": "Arquivos e links", "field": "arquivos_contidos", "align": "left"},
 ]
 
@@ -193,15 +193,45 @@ def main_page() -> None:
     record_table: ui.table
     dialog: ui.dialog
     total_label: ui.label
+    results_panel: ui.html
     fields: dict[str, Any] = {}
     file_inputs: list[Any] = []
     files_container: Any = None
     current_id: int | None = None
 
+    def build_search_results(rows: list[dict[str, Any]], term: str) -> str:
+        if not term.strip():
+            return ""
+        cards = []
+        for row in rows:
+            files = []
+            for arquivo in row.get("arquivos_contidos", []):
+                files.append(
+                    f'''<div class="search-file">
+                        <b>Arquivo:</b> {arquivo.get("nome_html", "")}
+                        <span><b>Envelope:</b> {arquivo.get("numero_envelope_html", "") or "Não informado"}</span>
+                        <span><b>Assunto:</b> {arquivo.get("assunto_html", "") or "Não informado"}</span>
+                        <span><b>Interessado:</b> {arquivo.get("interessado_html", "") or "Não informado"}</span>
+                        <span><b>Link:</b> {arquivo.get("link_html", "") or "Não informado"}</span>
+                    </div>'''
+                )
+            cards.append(
+                f'''<div class="search-result-card">
+                    <div class="search-result-title">Resultado encontrado</div>
+                    <div><b>Caixa de arquivo:</b> {row.get("local_html", "")}</div>
+                    <div><b>Número da caixa/pasta:</b> {row.get("caixa_html", "")}</div>
+                    {"".join(files)}
+                </div>'''
+            )
+        return f'<div class="search-results-title">Resultados para: <span class="search-highlight">{escape(term.strip())}</span></div>{"".join(cards)}'
+
     def refresh_table() -> None:
-        record_table.rows = list_records(search_input.value or "")
+        term = search_input.value or ""
+        record_table.rows = list_records(term)
         record_table.update()
         total_label.set_text(f"{len(record_table.rows)} registro(s) exibido(s)")
+        results_panel.content = build_search_results(record_table.rows, term)
+        results_panel.update()
 
     def close_dialog() -> None:
         dialog.close()
@@ -360,6 +390,10 @@ def main_page() -> None:
             .q-table tbody tr { cursor: pointer; }
             .q-table tbody tr:hover { background: #eaf2ff !important; }
             .search-highlight { background: #dc2626; color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 700; }
+            .search-results-title { font-size: 1.05rem; font-weight: 700; color: #334155; margin: 0.5rem 0; }
+            .search-result-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 5px solid #dc2626; border-radius: 8px; padding: 0.8rem 1rem; margin: 0.6rem 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+            .search-result-title { font-weight: 700; color: #991b1b; margin-bottom: 0.35rem; }
+            .search-file { margin-top: 0.55rem; padding: 0.5rem; background: #f8fafc; border-radius: 5px; display: grid; gap: 0.15rem; }
         </style>
     """)
 
@@ -378,6 +412,8 @@ def main_page() -> None:
                 ui.button("Buscar", icon="search", on_click=refresh_table).classes("h-14")
                 ui.button("Adicionar registro", icon="add", color="primary", on_click=lambda: open_form()).classes("h-14")
             search_input.on("keydown.enter", refresh_table)
+
+        results_panel = ui.html("").classes("w-full")
 
         with ui.row().classes("w-full items-center justify-between"):
             total_label = ui.label()
