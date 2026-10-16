@@ -79,6 +79,7 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                 for arquivo in arquivos:
                     if isinstance(arquivo, dict):
                         normalized.append({
+                            "numero_envelope": str(arquivo.get("numero_envelope", item.get("numero_envelope", "") or "")).strip(),
                             "nome": str(arquivo.get("nome", "")).strip(),
                             "assunto": str(arquivo.get("assunto", "")).strip(),
                             "interessado": str(arquivo.get("interessado", "")).strip(),
@@ -86,6 +87,7 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
                         })
                     else:
                         normalized.append({
+                            "numero_envelope": str(item.get("numero_envelope", "") or "").strip(),
                             "nome": str(arquivo).strip(),
                             "assunto": "",
                             "interessado": "",
@@ -99,13 +101,14 @@ def list_records(search: str = "") -> list[dict[str, Any]]:
 def save_record(data: dict[str, Any], record_id: int | None = None) -> None:
     arquivos = [
         {
+            "numero_envelope": str(value.get("numero_envelope", "")).strip(),
             "nome": str(value.get("nome", "")).strip(),
             "assunto": str(value.get("assunto", "")).strip(),
             "interessado": str(value.get("interessado", "")).strip(),
             "link": str(value.get("link", "")).strip(),
         }
         for value in data["arquivos_contidos"]
-        if str(value.get("nome", "")).strip() or str(value.get("link", "")).strip()
+        if any(str(value.get(chave, "")).strip() for chave in ("numero_envelope", "nome", "assunto", "interessado", "link"))
     ]
     if len(arquivos) > MAX_FILES:
         raise ValueError(f"É permitido cadastrar no máximo {MAX_FILES} arquivos.")
@@ -115,7 +118,7 @@ def save_record(data: dict[str, Any], record_id: int | None = None) -> None:
             values = (
                 data["local_arquivo"],
                 data["numero_caixa_pasta"],
-                data["numero_envelope"],
+                "",
                 Json(arquivos),
                 "",
             )
@@ -156,7 +159,6 @@ initialize_database()
 COLUMNS = [
     {"name": "local_arquivo", "label": "Local de arquivo", "field": "local_arquivo", "align": "left", "sortable": True},
     {"name": "numero_caixa_pasta", "label": "Nº caixa/pasta", "field": "numero_caixa_pasta", "align": "left"},
-    {"name": "numero_envelope", "label": "Nº envelope", "field": "numero_envelope", "align": "left"},
     {"name": "arquivos_contidos", "label": "Arquivos e links", "field": "arquivos_contidos", "align": "left"},
 ]
 
@@ -190,12 +192,14 @@ def main_page() -> None:
                 with ui.column().classes("w-full gap-1 border rounded-lg p-2 bg-gray-50"):
                     ui.label(f"Arquivo {index}").classes("text-subtitle2 font-semibold text-gray-700")
                     with ui.row().classes("w-full items-center gap-2"):
+                        envelope_input = ui.input("Número do envelope", value=value.get("numero_envelope", "")).props("outlined dense").classes("w-48")
                         name_input = ui.input("Nome do arquivo", value=value.get("nome", "")).props("outlined dense").classes("flex-1")
                         subject_input = ui.input("Assunto do arquivo", value=value.get("assunto", "")).props("outlined dense").classes("flex-1")
                     with ui.row().classes("w-full items-center gap-2"):
                         interested_input = ui.input("Interessado", value=value.get("interessado", "")).props("outlined dense").classes("flex-1")
                         link_input = ui.input("Link do arquivo", value=value.get("link", "")).props("outlined dense").classes("flex-1")
                     file_inputs.append({
+                        "numero_envelope": envelope_input,
                         "nome": name_input,
                         "assunto": subject_input,
                         "interessado": interested_input,
@@ -208,6 +212,7 @@ def main_page() -> None:
             return
         values = [
             {
+                "numero_envelope": str(pair["numero_envelope"].value or ""),
                 "nome": str(pair["nome"].value or ""),
                 "assunto": str(pair["assunto"].value or ""),
                 "interessado": str(pair["interessado"].value or ""),
@@ -215,16 +220,16 @@ def main_page() -> None:
             }
             for pair in file_inputs
         ]
-        values.append({"nome": "", "assunto": "", "interessado": "", "link": ""})
+        values.append({"numero_envelope": "", "nome": "", "assunto": "", "interessado": "", "link": ""})
         rebuild_file_inputs(values)
 
     def collect_form() -> dict[str, Any]:
         return {
             "local_arquivo": str(fields["local_arquivo"].value or "").strip(),
             "numero_caixa_pasta": str(fields["numero_caixa_pasta"].value or "").strip(),
-            "numero_envelope": str(fields["numero_envelope"].value or "").strip(),
             "arquivos_contidos": [
                 {
+                    "numero_envelope": str(pair["numero_envelope"].value or "").strip(),
                     "nome": str(pair["nome"].value or "").strip(),
                     "assunto": str(pair["assunto"].value or "").strip(),
                     "interessado": str(pair["interessado"].value or "").strip(),
@@ -239,8 +244,8 @@ def main_page() -> None:
         if not data["local_arquivo"]:
             ui.notify("Selecione o local de arquivo.", type="warning")
             return
-        if not data["numero_caixa_pasta"] and not data["numero_envelope"]:
-            ui.notify("Informe o número da caixa/pasta ou do envelope.", type="warning")
+        if not data["numero_caixa_pasta"]:
+            ui.notify("Informe o número da caixa/pasta.", type="warning")
             return
         try:
             save_record(data, current_id)
@@ -290,17 +295,13 @@ def main_page() -> None:
                         "Número da caixa/pasta",
                         value=str(record.get("numero_caixa_pasta", "") if record else ""),
                     ).props("outlined dense").classes("flex-1")
-                    fields["numero_envelope"] = ui.input(
-                        "Número do envelope",
-                        value=str(record.get("numero_envelope", "") if record else ""),
-                    ).props("outlined dense").classes("flex-1")
 
                 with ui.row().classes("w-full items-center justify-between mt-2"):
                     ui.label(f"Arquivos contidos (até {MAX_FILES})").classes("text-subtitle1 font-semibold")
                     ui.button("Adicionar arquivo", icon="add", on_click=add_file_field).props("outline dense")
                 files_container = ui.column().classes("w-full gap-2 max-h-80 overflow-y-auto")
                 rebuild_file_inputs(
-                    (record.get("arquivos_contidos", []) if record else [{"nome": "", "assunto": "", "interessado": "", "link": ""}])
+                    (record.get("arquivos_contidos", []) if record else [{"numero_envelope": "", "nome": "", "assunto": "", "interessado": "", "link": ""}])
                 )
 
             with ui.row().classes("w-full justify-between mt-4"):
@@ -368,7 +369,7 @@ def main_page() -> None:
             """
             <q-td :props="props">
                 <div v-for="(arquivo, index) in props.row.arquivos_contidos" :key="index" class="q-mb-sm">
-                    <div><strong>{{ index + 1 }}. {{ arquivo.nome }}</strong></div>
+                    <div><strong>{{ index + 1 }}. {{ arquivo.nome }}</strong> — Envelope: {{ arquivo.numero_envelope || 'Não informado' }}</div>
                     <div class="text-grey-8">Assunto: {{ arquivo.assunto || 'Não informado' }}</div>
                     <div class="text-grey-8">Interessado: {{ arquivo.interessado || 'Não informado' }}</div>
                     <a v-if="arquivo.link" :href="arquivo.link" target="_blank" rel="noopener" class="text-blue-700 underline">Abrir link</a>
